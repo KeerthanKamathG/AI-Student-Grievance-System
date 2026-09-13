@@ -1,0 +1,6 @@
+{
+  "name": "AI Student Grievance System",
+  "description": "A smart college grievance management portal with AI spam filtering, student ticket submission, OTP verification, and administrative triage dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

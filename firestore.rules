@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User profile records (indexed by college Register Number)
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    
+    // Student grievance submissions
+    match /grievances/{grievanceId} {
+      allow read, write: if true;
+    }
+    
+    // Default catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

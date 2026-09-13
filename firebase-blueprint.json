@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Student or Admin user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "regNo": { "type": "string" },
+        "name": { "type": "string" },
+        "gender": { "type": "string" },
+        "studentType": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "hostelBlock": { "type": "string" },
+        "roomNo": { "type": "string" },
+        "role": { "type": "string" },
+        "isEmailVerified": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "regNo", "name", "email", "role"]
+    },
+    "Grievance": {
+      "title": "Grievance",
+      "description": "Student grievance ticket submission",
+      "type": "object",
+      "properties": {
+        "ticketNo": { "type": "string" },
+        "studentRegNo": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentEmail": { "type": "string" },
+        "studentPhone": { "type": "string" },
+        "studentType": { "type": "string" },
+        "hostelBlock": { "type": "string" },
+        "roomNo": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "isSpam": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["ticketNo", "studentRegNo", "category", "description", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile records stored by register number or ID"
+    },
+    "/grievances/{grievanceId}": {
+      "schema": "Grievance",
+      "description": "Submitted student complaints and tickets"
+    }
+  }
+}
