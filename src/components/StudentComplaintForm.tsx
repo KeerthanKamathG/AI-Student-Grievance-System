@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, Grievance, StudentType } from '../types';
 import { HOSTELLER_CATEGORIES, DAYSCHOLAR_CATEGORIES, HOSTEL_BLOCKS } from '../data/constants';
-import { db } from '../firebase';
+import { db, cleanFirestoreData } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
 
 interface StudentComplaintFormProps {
@@ -103,16 +103,22 @@ export const StudentComplaintForm: React.FC<StudentComplaintFormProps> = ({
       // Generate Ticket Number
       const ticketNo = `GRV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
+      const regNoToUse = (user.regNo || user.id || 'STUDENT').trim().toUpperCase();
+      const nameToUse = name.trim() || user.name || 'Student';
+      const emailToUse = email.trim() || user.email || 'student@college.edu';
+      const phoneToUse = phone.trim() || user.phone || '9876543210';
+      const studentTypeToUse = studentType || user.studentType || 'dayscholar';
+
       const grievanceData: Grievance = {
         id: 'tkt_' + Math.random().toString(36).substring(2, 9),
         ticketNo,
-        studentRegNo: user.regNo,
-        studentName: name.trim(),
-        studentEmail: email.trim(),
-        studentPhone: phone.trim(),
-        studentType,
-        hostelBlock: studentType === 'hosteller' ? hostelBlock : undefined,
-        roomNo: studentType === 'hosteller' ? roomNo.trim() : undefined,
+        studentRegNo: regNoToUse,
+        studentName: nameToUse,
+        studentEmail: emailToUse,
+        studentPhone: phoneToUse,
+        studentType: studentTypeToUse,
+        hostelBlock: studentTypeToUse === 'hosteller' ? (hostelBlock || 'Block A (Boys Hostel)') : undefined,
+        roomNo: studentTypeToUse === 'hosteller' ? (roomNo.trim() || 'N/A') : undefined,
         category,
         description: trimmed,
         status: 'pending',
@@ -125,7 +131,8 @@ export const StudentComplaintForm: React.FC<StudentComplaintFormProps> = ({
 
       // 2. Persist in Firebase Firestore
       try {
-        const docRef = await addDoc(collection(db, 'grievances'), grievanceData);
+        const firestorePayload = cleanFirestoreData(grievanceData);
+        const docRef = await addDoc(collection(db, 'grievances'), firestorePayload);
         grievanceData.id = docRef.id;
       } catch (fErr) {
         console.warn('Firestore write fallback in local session:', fErr);

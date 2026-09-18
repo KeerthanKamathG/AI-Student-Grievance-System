@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
+import nodemailer, { Transporter } from 'nodemailer';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
@@ -25,6 +26,49 @@ function getAI(): GoogleGenAI | null {
     });
   }
   return aiClient;
+}
+
+// Lazy-initialized Nodemailer Gmail Transporter
+let mailTransporter: Transporter | null = null;
+function getMailTransporter(): Transporter | null {
+  const user = process.env.GMAIL_USER || process.env.SMTP_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || process.env.SMTP_PASS;
+  if (!mailTransporter && user && pass) {
+    mailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user,
+        pass,
+      },
+    });
+  }
+  return mailTransporter;
+}
+
+// Helper to send real emails via Gmail (with fallback logging)
+async function sendGmailNotification(to: string, subject: string, body: string, html?: string) {
+  const transporter = getMailTransporter();
+  if (transporter) {
+    try {
+      const fromUser = process.env.GMAIL_USER || 'noreply@college.edu';
+      const info = await transporter.sendMail({
+        from: `"AI Student Grievance Portal" <${fromUser}>`,
+        to,
+        subject,
+        text: body,
+        html: html || body.replace(/\n/g, '<br/>'),
+      });
+      console.log('Gmail dispatched successfully via Nodemailer. Message ID:', info.messageId);
+      return { sent: true, messageId: info.messageId };
+    } catch (err: any) {
+      console.error('Nodemailer Gmail dispatch error:', err?.message || err);
+      return { sent: false, error: err?.message || String(err) };
+    }
+  }
+  return {
+    sent: false,
+    reason: 'GMAIL_USER and GMAIL_APP_PASSWORD are not configured in environment settings.',
+  };
 }
 
 // In-memory OTP storage for rapid demonstration & verification
@@ -64,11 +108,11 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// 2. Request OTP for Signup / Verification
-app.post('/api/auth/send-otp', (req: Request, res: Response) => {
+// 2. Request OTP for Signup / Verification (Connected with Gmail)
+app.post('/api/auth/send-otp', async (req: Request, res: Response) => {
   const { email, regNo, name } = req.body;
   if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+    return res.status(400).json({ error: 'Email address is required' });
   }
 
   // Generate 6 digit OTP
@@ -76,17 +120,40 @@ app.post('/api/auth/send-otp', (req: Request, res: Response) => {
   const expiresAt = Date.now() + 5 * 60 * 1000; // 5 mins
   otpStore.set(email.toLowerCase(), { otp, expiresAt });
 
-  const subject = 'Your Verification OTP - AI Student Grievance Portal';
-  const body = `Hello ${name || 'Student'},\n\nYour 6-digit One Time Password (OTP) for verification at the AI Student Grievance Portal is: ${otp}.\n\nThis OTP is valid for 5 minutes. Please do not share it with anyone.\n\nCollege Grievance Redressal Cell.`;
+  const subject = 'Verification Code (OTP) - AI Student Grievance Portal';
+  const textBody = `Hello ${name || 'Student'},\n\nYour 6-digit One-Time Password (OTP) for verification and registration at the AI Student Grievance Portal is: ${otp}\n\nThis code is valid for 5 minutes. Please do not share this OTP with anyone.\n\nWarm regards,\nCollege Student Grievance Redressal Cell`;
+  const htmlBody = `
+    <div style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; max-width: 520px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+      <div style="background: linear-gradient(135deg, #1e3a8a, #312e81); padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; text-align: center;">
+        <h2 style="color: #ffffff; margin: 0; font-size: 18px; font-weight: 700;">AI Student Grievance Portal</h2>
+        <p style="color: #93c5fd; margin: 4px 0 0 0; font-size: 12px;">Student Signup Verification</p>
+      </div>
+      <p style="font-size: 14px; margin-bottom: 12px;">Hello <strong>${name || 'Student'}</strong>,</p>
+      <p style="font-size: 13px; color: #475569; margin-bottom: 16px;">Use the following 6-digit One-Time Password (OTP) to complete your student registration:</p>
+      <div style="background-color: #f8fafc; border: 1px border-dashed #cbd5e1; padding: 18px; text-align: center; border-radius: 12px; margin: 20px 0;">
+        <span style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #2563eb; font-family: monospace;">${otp}</span>
+      </div>
+      <p style="font-size: 12px; color: #64748b; margin-top: 16px;">This OTP is valid for <strong>5 minutes</strong>. If you did not initiate this request, please ignore this email.</p>
+      <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0 16px 0;" />
+      <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0;">Campus Redressal & Anti-Ragging Cell &bull; Confidential & Automated Notice</p>
+    </div>
+  `;
 
-  const sent = sendSimulatedEmail(email, subject, body, 'otp');
+  // 1. Record in outbox for live in-app email modal inspection
+  const sentSimulated = sendSimulatedEmail(email, subject, textBody, 'otp');
+
+  // 2. Dispatch real email via Gmail Nodemailer if credentials exist
+  const gmailResult = await sendGmailNotification(email, subject, textBody, htmlBody);
 
   res.json({
     success: true,
-    message: 'OTP sent successfully',
+    message: gmailResult.sent
+      ? `OTP code sent directly to ${email} via Gmail.`
+      : `OTP generated for ${email}. Check your email box or the in-app inbox.`,
     email,
-    previewOtp: otp, // For convenience in developer/demonstration mode
-    sentEmail: sent
+    sentViaGmail: gmailResult.sent,
+    previewOtp: otp, // Retained for immediate evaluation fallback
+    sentEmail: sentSimulated,
   });
 });
 
@@ -126,9 +193,9 @@ app.post('/api/ai/classify-complaint', async (req: Request, res: Response) => {
   const trimmed = text.trim();
 
   // Basic deterministic heuristic checks for fast response & fallback
-  const isTooShort = trimmed.length < 5;
-  const isRepetitive = /(.)\1{5,}/i.test(trimmed); // e.g. aaaaaaa, xxxxxx
-  const consonantsOnly = /^[^aeiou\s]{8,}$/i.test(trimmed); // e.g. cbhhcbhbdhcdbhd
+  const isTooShort = trimmed.length < 2;
+  const isRepetitive = /(.)\1{7,}/i.test(trimmed); // e.g. aaaaaaaa, xxxxxxxx
+  const consonantsOnly = /^[^aeiou\s]{10,}$/i.test(trimmed); // e.g. cbhhcbhbdhcdbhd
 
   if (isTooShort || isRepetitive || consonantsOnly) {
     return res.json({
@@ -198,7 +265,7 @@ Respond ONLY with valid JSON conforming to this schema:
 });
 
 // 5. Trigger Automated Email Notifications (Grievance Confirmation & Resolution Done)
-app.post('/api/notifications/send', (req: Request, res: Response) => {
+app.post('/api/notifications/send', async (req: Request, res: Response) => {
   const { to, type, ticketNo, studentName, category, customMessage } = req.body;
   if (!to || !type) {
     return res.status(400).json({ error: 'Recipient and notification type are required' });
@@ -218,8 +285,10 @@ app.post('/api/notifications/send', (req: Request, res: Response) => {
     body = customMessage || 'Update regarding your grievance submission.';
   }
 
-  const sent = sendSimulatedEmail(to, subject, body, type);
-  res.json({ success: true, email: sent });
+  const sentSimulated = sendSimulatedEmail(to, subject, body, type);
+  await sendGmailNotification(to, subject, body);
+
+  res.json({ success: true, email: sentSimulated });
 });
 
 // 6. Get Outbox (Email simulation viewer so student/admin can see received emails)

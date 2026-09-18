@@ -17,32 +17,20 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
-import { UserProfile, Grievance, PriorityLevel } from './types';
+import { UserProfile, Grievance, PriorityLevel, StudentType } from './types';
 import { INITIAL_GRIEVANCES } from './data/initialData';
+import { DAYSCHOLAR_CATEGORIES } from './data/constants';
 import { AuthModal } from './components/AuthModal';
 import { StudentComplaintForm } from './components/StudentComplaintForm';
 import { AdminDashboard } from './components/AdminDashboard';
 import { FAQSection } from './components/FAQSection';
 import { EmailInboxModal } from './components/EmailInboxModal';
-import { db } from './firebase';
+import { db, cleanFirestoreData } from './firebase';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, setDoc } from 'firebase/firestore';
 
 export default function App() {
-  // Current user state (defaults to Rahul Sharma student for quick demonstration)
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>({
-    id: '2023CS042',
-    regNo: '2023CS042',
-    name: 'Rahul Sharma',
-    gender: 'Male',
-    studentType: 'hosteller',
-    phone: '9876543210',
-    email: 'rahul.cs23@college.edu',
-    hostelBlock: 'Block A (Boys Hostel)',
-    roomNo: 'A-304',
-    role: 'student',
-    isEmailVerified: true,
-    createdAt: new Date().toISOString(),
-  });
+  // Current user state (starts as null until student or admin signs in)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -82,15 +70,18 @@ export default function App() {
               const data = d.data() as Partial<Grievance>;
               const initial = initialMap.get(d.id);
 
+              const inferredStudentType: StudentType = (data.studentType as StudentType) || 
+                (data.category && DAYSCHOLAR_CATEGORIES.includes(data.category) ? 'dayscholar' : (initial?.studentType || 'dayscholar'));
+
               // Merge initial default values with Firestore document data to ensure no missing fields
               const fullDoc: Grievance = {
                 id: d.id,
                 ticketNo: data.ticketNo || initial?.ticketNo || `GRV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-                studentRegNo: data.studentRegNo || initial?.studentRegNo || '2023CS042',
+                studentRegNo: data.studentRegNo || initial?.studentRegNo || '2026DS' + d.id.substring(0, 4).toUpperCase(),
                 studentName: data.studentName || initial?.studentName || 'Student',
                 studentEmail: data.studentEmail || initial?.studentEmail || 'student@college.edu',
                 studentPhone: data.studentPhone || initial?.studentPhone || '9876543210',
-                studentType: data.studentType || initial?.studentType || 'hosteller',
+                studentType: inferredStudentType,
                 hostelBlock: data.hostelBlock || initial?.hostelBlock,
                 roomNo: data.roomNo || initial?.roomNo,
                 category: data.category || initial?.category || 'Others',
@@ -108,13 +99,20 @@ export default function App() {
               firestoreList.push(fullDoc);
             });
 
-            // Include any initial sample grievances that haven't been modified or created in Firestore yet
+            // Merge initial default values with Firestore document data to ensure no missing fields
             const firestoreIds = new Set(firestoreList.map((g) => g.id));
             const remainingInitials = INITIAL_GRIEVANCES.filter((g) => !firestoreIds.has(g.id));
 
-            setGrievances([...firestoreList, ...remainingInitials]);
+            setGrievances((prev) => {
+              // Keep any local un-synced tickets (temp IDs starting with 'tkt_')
+              const localPending = prev.filter((g) => g.id.startsWith('tkt_') && !firestoreIds.has(g.id));
+              return [...localPending, ...firestoreList, ...remainingInitials];
+            });
           } else {
-            setGrievances(INITIAL_GRIEVANCES);
+            setGrievances((prev) => {
+              const localPending = prev.filter((g) => g.id.startsWith('tkt_'));
+              return [...localPending, ...INITIAL_GRIEVANCES];
+            });
           }
         },
         (error) => {
@@ -156,7 +154,7 @@ export default function App() {
 
     if (targetGrievance) {
       try {
-        await setDoc(doc(db, 'grievances', id), targetGrievance, { merge: true });
+        await setDoc(doc(db, 'grievances', id), cleanFirestoreData(targetGrievance), { merge: true });
       } catch (err) {
         console.warn('Firestore priority update fallback:', err);
       }
@@ -182,7 +180,7 @@ export default function App() {
 
     // Update Firestore with complete object
     try {
-      await setDoc(doc(db, 'grievances', id), updatedTicket, { merge: true });
+      await setDoc(doc(db, 'grievances', id), cleanFirestoreData(updatedTicket), { merge: true });
     } catch (err) {
       console.warn('Firestore mark done update fallback:', err);
     }

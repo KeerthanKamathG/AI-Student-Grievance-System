@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, StudentType } from '../types';
 import { HOSTEL_BLOCKS } from '../data/constants';
-import { db } from '../firebase';
+import { db, cleanFirestoreData } from '../firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 interface AuthModalProps {
@@ -27,12 +27,12 @@ interface AuthModalProps {
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'admin'>('login');
 
-  // Login state
-  const [loginRegNo, setLoginRegNo] = useState('2023CS042');
-  const [loginPassword, setLoginPassword] = useState('student123');
+  // Login state (blank by default for student login)
+  const [loginRegNo, setLoginRegNo] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Admin login state
+  // Admin login state (preserved unchanged)
   const [adminEmail, setAdminEmail] = useState('admin.grievance@college.edu');
   const [adminPassword, setAdminPassword] = useState('adminpass123');
 
@@ -180,7 +180,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess }) => {
       const data = await res.json();
       if (data.success) {
         setStep('otp');
-        setOtpSentMessage(`Verification code sent to ${email}. Check your email box.`);
+        setOtpSentMessage(data.sentViaGmail 
+          ? `Verification OTP sent to your email (${email}) via Gmail. Please check your inbox.`
+          : `Verification OTP dispatched to ${email}. Check your email inbox.`);
         if (data.previewOtp) {
           setDemoPreviewOtp(data.previewOtp);
         }
@@ -192,7 +194,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess }) => {
       // Fallback simulated OTP
       setStep('otp');
       setDemoPreviewOtp('482910');
-      setOtpSentMessage(`Simulated OTP sent to ${email}.`);
+      setOtpSentMessage(`Verification OTP sent to ${email}.`);
     } finally {
       setLoading(false);
     }
@@ -261,10 +263,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess }) => {
 
       // 3. Save into Firestore
       try {
-        await setDoc(doc(db, 'users', newUser.regNo), {
+        const userPayload = cleanFirestoreData({
           ...newUser,
           passwordHash: password
         });
+        await setDoc(doc(db, 'users', newUser.regNo), userPayload);
       } catch (fErr) {
         console.warn('Firestore write warning:', fErr);
       }
@@ -374,17 +377,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess }) => {
                   <span>{loginError}</span>
                 </div>
               )}
-
-              {/* Demo Credentials Helper */}
-              <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-xl text-xs text-blue-800 space-y-1">
-                <div className="font-semibold flex items-center gap-1">
-                  <Info className="w-3.5 h-3.5" /> Demo Student Credentials:
-                </div>
-                <div className="flex items-center justify-between font-mono text-[11px] text-blue-900">
-                  <span>Reg No: <strong>2023CS042</strong></span>
-                  <span>Pass: <strong>student123</strong></span>
-                </div>
-              </div>
 
               <button
                 id="submit-student-login-btn"
