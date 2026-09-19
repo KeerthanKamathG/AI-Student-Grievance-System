@@ -29,8 +29,23 @@ import { db, cleanFirestoreData } from './firebase';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, setDoc } from 'firebase/firestore';
 
 export default function App() {
-  // Current user state (starts as null until student or admin signs in)
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  // Current user state (persisted across page reloads via localStorage)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('grievance_portal_user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('grievance_portal_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('grievance_portal_user');
+    }
+  }, [currentUser]);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -206,6 +221,7 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('grievance_portal_user');
     setIsAuthModalOpen(true);
     setActiveView('home');
   };
@@ -490,6 +506,7 @@ export default function App() {
       {/* ========================================================================= */}
       <AuthModal
         isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
         onSuccess={(user) => {
           setCurrentUser(user);
           setIsAuthModalOpen(false);

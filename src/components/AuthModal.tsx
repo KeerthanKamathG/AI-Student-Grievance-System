@@ -12,7 +12,8 @@ import {
   AlertCircle,
   ArrowRight,
   Sparkles,
-  Info
+  Info,
+  X
 } from 'lucide-react';
 import { UserProfile, StudentType } from '../types';
 import { HOSTEL_BLOCKS } from '../data/constants';
@@ -22,9 +23,10 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 interface AuthModalProps {
   isOpen: boolean;
   onSuccess: (user: UserProfile) => void;
+  onClose?: () => void;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'admin'>('login');
 
   // Login state (blank by default for student login)
@@ -282,9 +284,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-lg overflow-hidden my-6">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-800 text-slate-900 dark:text-slate-100 w-full max-w-lg overflow-hidden my-6">
         {/* Banner Header */}
         <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-6 relative">
+          {onClose && (
+            <button
+              id="close-auth-modal-btn"
+              type="button"
+              onClick={onClose}
+              className="absolute top-4 right-4 p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-colors cursor-pointer"
+              title="Close / Go Back"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-xs flex items-center justify-center border border-white/20">
               <GraduationCap className="w-7 h-7 text-blue-300" />
