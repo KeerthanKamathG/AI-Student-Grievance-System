@@ -16,7 +16,7 @@ import {
   X
 } from 'lucide-react';
 import { UserProfile, StudentType } from '../types';
-import { HOSTEL_BLOCKS } from '../data/constants';
+import { HOSTEL_BLOCKS, DEPARTMENT_OPTIONS } from '../data/constants';
 import { db, cleanFirestoreData } from '../firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -41,6 +41,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose
   // Signup form state
   const [signupRegNo, setSignupRegNo] = useState('');
   const [name, setName] = useState('');
+  const [department, setDepartment] = useState<string>(DEPARTMENT_OPTIONS[0]);
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
   const [studentType, setStudentType] = useState<StudentType>('hosteller');
   const [phone, setPhone] = useState('');
@@ -252,6 +253,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose
         id: signupRegNo.trim().toUpperCase(),
         regNo: signupRegNo.trim().toUpperCase(),
         name: name.trim(),
+        department,
         gender,
         studentType,
         phone: phone.trim(),
@@ -503,6 +505,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose
                         className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white"
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Department *
+                    </label>
+                    <select
+                      id="signup-department-select"
+                      required
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white text-slate-900"
+                    >
+                      {DEPARTMENT_OPTIONS.map((dept) => (
+                        <option key={dept} value={dept}>
+                          {dept}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

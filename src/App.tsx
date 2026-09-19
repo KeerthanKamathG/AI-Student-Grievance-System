@@ -3,7 +3,6 @@ import {
   GraduationCap,
   User,
   LogOut,
-  Mail,
   PlusCircle,
   Clock,
   CheckCircle2,
@@ -12,6 +11,7 @@ import {
   ShieldAlert,
   Sparkles,
   ChevronRight,
+  ChevronDown,
   Inbox,
   Filter,
   Sun,
@@ -24,7 +24,7 @@ import { AuthModal } from './components/AuthModal';
 import { StudentComplaintForm } from './components/StudentComplaintForm';
 import { AdminDashboard } from './components/AdminDashboard';
 import { FAQSection } from './components/FAQSection';
-import { EmailInboxModal } from './components/EmailInboxModal';
+import { ProfileModal } from './components/ProfileModal';
 import { db, cleanFirestoreData } from './firebase';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, setDoc } from 'firebase/firestore';
 
@@ -48,7 +48,9 @@ export default function App() {
   }, [currentUser]);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   const [activeView, setActiveView] = useState<'home' | 'new_complaint'>('home');
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
@@ -70,7 +72,7 @@ export default function App() {
   // Live complaints list
   const [grievances, setGrievances] = useState<Grievance[]>(INITIAL_GRIEVANCES);
 
-  // Connect to Firestore real-time snapshot listener
+  // Connect to Firestore real-time snapshot listener with complete deduplication & cleanup
   useEffect(() => {
     try {
       const q = query(collection(db, 'grievances'));
@@ -85,10 +87,13 @@ export default function App() {
               const data = d.data() as Partial<Grievance>;
               const initial = initialMap.get(d.id);
 
-              const inferredStudentType: StudentType = (data.studentType as StudentType) || 
-                (data.category && DAYSCHOLAR_CATEGORIES.includes(data.category) ? 'dayscholar' : (initial?.studentType || 'dayscholar'));
+              const inferredStudentType: StudentType =
+                (data.studentType as StudentType) ||
+                (data.category && DAYSCHOLAR_CATEGORIES.includes(data.category)
+                  ? 'dayscholar'
+                  : initial?.studentType || 'dayscholar');
 
-              // Merge initial default values with Firestore document data to ensure no missing fields
+              // Merge initial default values with Firestore document data
               const fullDoc: Grievance = {
                 id: d.id,
                 ticketNo: data.ticketNo || initial?.ticketNo || `GRV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -108,26 +113,37 @@ export default function App() {
                 aiClassification: data.aiClassification || initial?.aiClassification,
                 createdAt: data.createdAt || initial?.createdAt || new Date().toISOString(),
                 resolvedAt: data.resolvedAt || initial?.resolvedAt,
-                adminNotes: data.adminNotes || initial?.adminNotes
+                adminNotes: data.adminNotes || initial?.adminNotes,
               };
 
               firestoreList.push(fullDoc);
             });
 
-            // Merge initial default values with Firestore document data to ensure no missing fields
-            const firestoreIds = new Set(firestoreList.map((g) => g.id));
-            const remainingInitials = INITIAL_GRIEVANCES.filter((g) => !firestoreIds.has(g.id));
+            // Map for deduplication keyed by ticketNo & id
+            const ticketMap = new Map<string, Grievance>();
 
-            setGrievances((prev) => {
-              // Keep any local un-synced tickets (temp IDs starting with 'tkt_')
-              const localPending = prev.filter((g) => g.id.startsWith('tkt_') && !firestoreIds.has(g.id));
-              return [...localPending, ...firestoreList, ...remainingInitials];
+            // 1. Add Firestore items first (highest precedence)
+            firestoreList.forEach((g) => {
+              const ticketKey = g.ticketNo ? g.ticketNo.trim().toUpperCase() : g.id;
+              ticketMap.set(ticketKey, g);
+              ticketMap.set(g.id, g);
             });
+
+            // 2. Add INITIAL_GRIEVANCES only if neither ticketNo nor id exists in ticketMap
+            INITIAL_GRIEVANCES.forEach((initG) => {
+              const ticketKey = initG.ticketNo ? initG.ticketNo.trim().toUpperCase() : initG.id;
+              if (!ticketMap.has(initG.id) && !ticketMap.has(ticketKey)) {
+                ticketMap.set(initG.id, initG);
+                ticketMap.set(ticketKey, initG);
+              }
+            });
+
+            // Extract unique grievance objects
+            const dedupedList = Array.from(new Set(ticketMap.values()));
+
+            setGrievances(dedupedList);
           } else {
-            setGrievances((prev) => {
-              const localPending = prev.filter((g) => g.id.startsWith('tkt_'));
-              return [...localPending, ...INITIAL_GRIEVANCES];
-            });
+            setGrievances(INITIAL_GRIEVANCES);
           }
         },
         (error) => {
@@ -140,9 +156,18 @@ export default function App() {
     }
   }, []);
 
-  // Handle student submitted complaint
+  // Handle student submitted complaint with deduplication
   const handleGrievanceSubmitted = (newTicket: Grievance) => {
-    setGrievances((prev) => [newTicket, ...prev]);
+    setGrievances((prev) => {
+      const existingKeys = new Set(
+        prev.map((g) => (g.ticketNo || g.id).trim().toUpperCase())
+      );
+      const newKey = (newTicket.ticketNo || newTicket.id).trim().toUpperCase();
+      if (existingKeys.has(newKey)) {
+        return prev;
+      }
+      return [newTicket, ...prev];
+    });
     setActiveView('home');
     setSuccessBanner(
       `Grievance ticket #${newTicket.ticketNo} registered successfully! An automated confirmation email has been dispatched to ${newTicket.studentEmail}.`
@@ -226,10 +251,16 @@ export default function App() {
     setActiveView('home');
   };
 
-  // Filter complaints for current student
-  const studentGrievances = grievances.filter(
-    (g) => currentUser && (g.studentRegNo === currentUser.regNo || g.studentEmail === currentUser.email)
-  );
+  // Filter and reverse-chronologically sort complaints for current student (newest / most recently resolved first)
+  const studentGrievances = grievances
+    .filter(
+      (g) => currentUser && (g.studentRegNo === currentUser.regNo || g.studentEmail === currentUser.email)
+    )
+    .sort((a, b) => {
+      const timeA = new Date(a.resolvedAt || a.createdAt).getTime();
+      const timeB = new Date(b.resolvedAt || b.createdAt).getTime();
+      return timeB - timeA;
+    });
 
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-blue-100 dark:selection:bg-blue-900 selection:text-blue-900 dark:selection:text-blue-100 transition-colors">
@@ -277,26 +308,15 @@ export default function App() {
             </button>
 
             {currentUser ? (
-              <div className="flex items-center gap-2 sm:gap-3">
-                {/* Live Simulated Inbox Button */}
+              <div className="relative">
+                {/* Profile Interactive Dropdown Trigger */}
                 <button
-                  id="open-inbox-modal-btn"
-                  onClick={() => setIsEmailModalOpen(true)}
-                  className="relative p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700 transition-colors cursor-pointer"
-                  title="View your automated college emails"
-                >
-                  <Mail className="w-4 h-4" />
-                  <span className="sr-only">Notifications</span>
-                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-2 ring-white dark:ring-slate-900"></span>
-                </button>
-
-                {/* Profile Widget */}
-                <div
-                  id="user-profile-header-widget"
-                  className="flex items-center gap-2.5 pl-2 pr-3 py-1 bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl"
+                  id="user-profile-dropdown-btn"
+                  onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                  className="flex items-center gap-2 pl-2.5 pr-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
                 >
                   <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
-                    {currentUser.name.charAt(0)}
+                    {currentUser.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="hidden sm:block text-left text-xs">
                     <div className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">
@@ -306,15 +326,48 @@ export default function App() {
                       {currentUser.role === 'admin' ? 'Administrator' : currentUser.regNo}
                     </div>
                   </div>
-                  <button
-                    id="header-logout-btn"
-                    onClick={handleLogout}
-                    title="Sign Out"
-                    className="p-1 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded-md transition-colors ml-1 cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-1 shrink-0" />
+                </button>
+
+                {/* Profile Dropdown Dialogue Box */}
+                {isUserDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsUserDropdownOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 py-1.5 z-50">
+                      <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
+                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{currentUser.name}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{currentUser.email}</p>
+                      </div>
+
+                      <button
+                        id="dropdown-profile-option"
+                        onClick={() => {
+                          setIsUserDropdownOpen(false);
+                          setIsProfileModalOpen(true);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <span>Profile</span>
+                      </button>
+
+                      <button
+                        id="dropdown-logout-option"
+                        onClick={() => {
+                          setIsUserDropdownOpen(false);
+                          setIsLogoutConfirmOpen(true);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-2.5 transition-colors cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Logout</span>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <button
@@ -404,15 +457,6 @@ export default function App() {
                   >
                     <PlusCircle className="w-5 h-5" />
                     <span>Student Complaint Button</span>
-                  </button>
-
-                  <button
-                    id="check-emails-btn"
-                    onClick={() => setIsEmailModalOpen(true)}
-                    className="px-4 py-3.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl backdrop-blur-xs border border-white/20 transition-all flex items-center gap-2 cursor-pointer"
-                  >
-                    <Mail className="w-4 h-4 text-blue-300" />
-                    <span>Check Confirmation Emails</span>
                   </button>
                 </div>
               </div>
@@ -515,11 +559,58 @@ export default function App() {
       />
 
       {currentUser && (
-        <EmailInboxModal
-          isOpen={isEmailModalOpen}
-          onClose={() => setIsEmailModalOpen(false)}
-          userEmail={currentUser.email}
+        <ProfileModal
+          isOpen={isProfileModalOpen}
+          user={currentUser}
+          onClose={() => setIsProfileModalOpen(false)}
+          onSave={async (updatedUser) => {
+            setCurrentUser(updatedUser);
+            localStorage.setItem('grievance_portal_user', JSON.stringify(updatedUser));
+            try {
+              if (updatedUser.regNo) {
+                await setDoc(doc(db, 'users', updatedUser.regNo), cleanFirestoreData(updatedUser), { merge: true });
+              }
+            } catch (err) {
+              console.warn('Firestore profile update fallback:', err);
+            }
+            setSuccessBanner('Profile information updated successfully!');
+            setTimeout(() => setSuccessBanner(null), 4000);
+          }}
         />
+      )}
+
+      {/* Logout Confirmation Dialogue Box */}
+      {isLogoutConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 max-w-sm w-full p-6 text-center space-y-4">
+            <div className="w-12 h-12 bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto">
+              <LogOut className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">Confirm Logout</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Are you sure you want to log out of the Student Grievance System?
+            </p>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                id="cancel-logout-modal-btn"
+                onClick={() => setIsLogoutConfirmOpen(false)}
+                className="flex-1 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                id="confirm-logout-modal-btn"
+                onClick={() => {
+                  setIsLogoutConfirmOpen(false);
+                  handleLogout();
+                }}
+                className="flex-1 py-2.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors cursor-pointer shadow-xs"
+              >
+                Yes, Log Out
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ========================================================================= */}

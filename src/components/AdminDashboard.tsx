@@ -41,17 +41,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [resolutionNote, setResolutionNote] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
 
+  // Deduplicate incoming grievances by ticketNo & id to prevent duplicate card rendering
+  const uniqueGrievances = React.useMemo(() => {
+    const map = new Map<string, Grievance>();
+    grievances.forEach((g) => {
+      const ticketKey = g.ticketNo ? g.ticketNo.trim().toUpperCase() : g.id;
+      if (!map.has(ticketKey)) {
+        map.set(ticketKey, g);
+      }
+      if (!map.has(g.id)) {
+        map.set(g.id, g);
+      }
+    });
+    return Array.from(new Set(map.values()));
+  }, [grievances]);
+
   // Group complaints by category & calculate counts
   const categoryCounts = React.useMemo(() => {
     const counts: Record<string, number> = {};
-    grievances.forEach((g) => {
+    uniqueGrievances.forEach((g) => {
       // Exclude spam from active counts
       if (!g.isSpam) {
         counts[g.category] = (counts[g.category] || 0) + 1;
       }
     });
     return counts;
-  }, [grievances]);
+  }, [uniqueGrievances]);
 
   // Resilient student type helpers for string format variations (e.g. 'day_scholar', 'dayScholar', 'dayscholar')
   const isDayScholar = (type?: string) =>
@@ -61,16 +76,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     type ? type.toLowerCase().replace(/[^a-z]/g, '').includes('hostel') : false;
 
   // Student type counts
-  const dayscholarCount = grievances.filter((g) => !g.isSpam && isDayScholar(g.studentType)).length;
-  const hostellerCount = grievances.filter((g) => !g.isSpam && isHosteller(g.studentType)).length;
+  const dayscholarCount = uniqueGrievances.filter((g) => !g.isSpam && isDayScholar(g.studentType)).length;
+  const hostellerCount = uniqueGrievances.filter((g) => !g.isSpam && isHosteller(g.studentType)).length;
 
   // Important complaints
-  const importantComplaints = grievances.filter(
+  const importantComplaints = uniqueGrievances.filter(
     (g) => !g.isSpam && g.priority === 'urgent' && g.status !== 'resolved'
   );
 
   // Filter complaints according to active view
-  const displayedComplaints = grievances
+  const displayedComplaints = uniqueGrievances
     .filter((g) => {
       // Student Type filter (resilient string match)
       if (studentTypeFilter === 'dayscholar' && !isDayScholar(g.studentType)) {
@@ -113,8 +128,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       return true;
     })
-    // Sort Newest to Oldest as requested
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Sort Newest / Most Recently Resolved or Lodged to Oldest (Descending Order)
+    .sort((a, b) => {
+      const timeA = new Date(a.resolvedAt || a.createdAt).getTime();
+      const timeB = new Date(b.resolvedAt || b.createdAt).getTime();
+      return timeB - timeA;
+    });
 
   const handlePriorityChange = (id: string, priority: PriorityLevel) => {
     onUpdatePriority(id, priority);

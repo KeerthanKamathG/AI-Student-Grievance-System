@@ -2,10 +2,25 @@ export type UserRole = 'student' | 'admin';
 
 export type StudentType = 'hosteller' | 'dayscholar';
 
+export type Department =
+  | 'CSE (Computer Science & Engineering)'
+  | 'AIML (Artificial Intelligence & Machine Learning)'
+  | 'CSD (Computer Science & Design)'
+  | 'IT (Information Technology)'
+  | 'ADS (Artificial Intelligence & Data Science)'
+  | 'ECE (Electronics & Communication Engineering)'
+  | 'EEE (Electrical & Electronics Engineering)'
+  | 'MCT (Mechatronics Engineering)'
+  | 'MECH (Mechanical Engineering)'
+  | 'FT (Fashion Technology)'
+  | 'BME (Biomedical Engineering)'
+  | 'CIVIL (Civil Engineering)';
+
 export interface UserProfile {
   id: string;
   regNo: string;
   name: string;
+  department?: string;
   gender: 'Male' | 'Female' | 'Other';
   studentType: StudentType;
   phone: string;

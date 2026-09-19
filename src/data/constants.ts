@@ -68,3 +68,18 @@ export const HOSTEL_BLOCKS = [
   'Block D (Girls Hostel)',
   'PG & International Block'
 ];
+
+export const DEPARTMENT_OPTIONS = [
+  'CSE (Computer Science & Engineering)',
+  'AIML (Artificial Intelligence & Machine Learning)',
+  'CSD (Computer Science & Design)',
+  'IT (Information Technology)',
+  'ADS (Artificial Intelligence & Data Science)',
+  'ECE (Electronics & Communication Engineering)',
+  'EEE (Electrical & Electronics Engineering)',
+  'MCT (Mechatronics Engineering)',
+  'MECH (Mechanical Engineering)',
+  'FT (Fashion Technology)',
+  'BME (Biomedical Engineering)',
+  'CIVIL (Civil Engineering)',
+];
