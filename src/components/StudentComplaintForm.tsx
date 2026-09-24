@@ -72,6 +72,13 @@ export const StudentComplaintForm: React.FC<StudentComplaintFormProps> = ({
         console.warn('AI classification fallback:', err);
       }
 
+      // If AI detects spam, gibberish, or random keystrokes, block submission and prompt for real details
+      if (aiResult.isSpam) {
+        setErrorMsg(`⚠️ Spam / Gibberish Detected: ${aiResult.reason}. Please describe your grievance clearly with specific details (e.g. location, room number, or problem summary).`);
+        setSubmitting(false);
+        return;
+      }
+
       const ticketNo = `GRV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const grievanceData: Grievance = {

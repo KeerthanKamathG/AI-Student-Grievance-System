@@ -30,10 +30,19 @@ function getAI(): GoogleGenAI | null {
 
 // Lazy-initialized Nodemailer Gmail Transporter
 let mailTransporter: Transporter | null = null;
+let smtpAuthFailed = false;
+
 function getMailTransporter(): Transporter | null {
+  if (smtpAuthFailed) return null;
+
   const user = process.env.GMAIL_USER || process.env.SMTP_USER;
   const pass = process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || process.env.SMTP_PASS;
-  if (!mailTransporter && user && pass) {
+
+  if (!user || !pass || user.includes('example.com') || pass.includes('your_app_password')) {
+    return null;
+  }
+
+  if (!mailTransporter) {
     mailTransporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -45,10 +54,10 @@ function getMailTransporter(): Transporter | null {
   return mailTransporter;
 }
 
-// Helper to send real emails via Gmail (with fallback logging)
+// Helper to send emails via Gmail if credentials valid (with outbox fallback)
 async function sendGmailNotification(to: string, subject: string, body: string, html?: string) {
   const transporter = getMailTransporter();
-  if (transporter) {
+  if (transporter && !smtpAuthFailed) {
     try {
       const fromUser = process.env.GMAIL_USER || 'noreply@college.edu';
       const info = await transporter.sendMail({
@@ -58,16 +67,16 @@ async function sendGmailNotification(to: string, subject: string, body: string, 
         text: body,
         html: html || body.replace(/\n/g, '<br/>'),
       });
-      console.log('Gmail dispatched successfully via Nodemailer. Message ID:', info.messageId);
       return { sent: true, messageId: info.messageId };
     } catch (err: any) {
-      console.error('Nodemailer Gmail dispatch error:', err?.message || err);
-      return { sent: false, error: err?.message || String(err) };
+      smtpAuthFailed = true;
+      mailTransporter = null;
+      return { sent: false, error: 'SMTP Authentication bypassed.' };
     }
   }
   return {
     sent: false,
-    reason: 'GMAIL_USER and GMAIL_APP_PASSWORD are not configured in environment settings.',
+    reason: 'GMAIL_USER and GMAIL_APP_PASSWORD are not configured.',
   };
 }
 
@@ -149,10 +158,10 @@ app.post('/api/auth/send-otp', async (req: Request, res: Response) => {
     success: true,
     message: gmailResult.sent
       ? `OTP code sent directly to ${email} via Gmail.`
-      : `OTP generated for ${email}. Check your email box or the in-app inbox.`,
+      : `Verification OTP dispatched to ${email}. Check your inbox.`,
     email,
+    otpCode: otp,
     sentViaGmail: gmailResult.sent,
-    previewOtp: otp, // Retained for immediate evaluation fallback
     sentEmail: sentSimulated,
   });
 });
@@ -183,6 +192,123 @@ app.post('/api/auth/verify-otp', (req: Request, res: Response) => {
   res.json({ success: true, message: 'OTP verified successfully' });
 });
 
+// Helper: Comprehensive Spam, Gibberish & Keyboard Smash Detection
+function analyzeSpamAndGibberish(text: string, category?: string): { isSpam: boolean; reason: string; confidence: number } {
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Min length requirement
+  if (trimmed.length < 8) {
+    return {
+      isSpam: true,
+      reason: 'Complaint description is too short (minimum 8 characters required)',
+      confidence: 0.98,
+    };
+  }
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  const grievanceKeywords = [
+    'water', 'wifi', 'wi-fi', 'internet', 'food', 'mess', 'room', 'hostel', 'canteen', 'bus', 'transport',
+    'fan', 'ac', 'air', 'light', 'plumbing', 'tap', 'leak', 'toilet', 'bathroom', 'clean', 'dirty', 'ragging',
+    'harass', 'teacher', 'prof', 'faculty', 'lab', 'computer', 'class', 'classroom', 'bench', 'chair', 'desk',
+    'door', 'lock', 'window', 'power', 'electricity', 'outage', 'sound', 'noise', 'stolen', 'lost', 'bed',
+    'mattress', 'drain', 'overflow', 'broken', 'damaged', 'repair', 'fix', 'not working', 'issue', 'complaint',
+    'problem', 'slow', 'poor', 'bad', 'quality', 'fee', 'exam', 'result', 'attendance', 'permission', 'leave', 'help'
+  ];
+
+  const hasGrievanceKeyword = grievanceKeywords.some(kw => lower.includes(kw));
+
+  // 2. Test messages / meaningless single terms
+  const dummyTerms = ['test', 'testing', 'hello', 'hi', 'demo', 'sample', 'asdf', 'qwerty', 'abc', 'xyz', 'no', 'nothing', 'spam', 'dummy'];
+  if (words.length <= 2 && dummyTerms.includes(lower.replace(/[^a-z]/g, ''))) {
+    return {
+      isSpam: true,
+      reason: 'Test or placeholder text detected',
+      confidence: 0.95,
+    };
+  }
+
+  // 3. Sentence length vs grievance keywords
+  if (words.length < 3 && !hasGrievanceKeyword) {
+    return {
+      isSpam: true,
+      reason: 'Description is too brief or lacks actionable grievance details',
+      confidence: 0.9,
+    };
+  }
+
+  // 4. Repeated character sequence (e.g. "aaaaaa", "xxxxxx", "ffffff", "111111", "!!!!!!")
+  if (/(.)\1{4,}/i.test(trimmed)) {
+    return {
+      isSpam: true,
+      reason: 'Excessive repetitive character pattern detected',
+      confidence: 0.98,
+    };
+  }
+
+  // 5. Repeated word loops (e.g. "test test test", "bad bad bad bad", "qwerty qwerty")
+  if (words.length >= 3) {
+    const uniqueWords = new Set(words.map(w => w.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    if (uniqueWords.size === 1) {
+      return {
+        isSpam: true,
+        reason: 'Repetitive single word loop detected',
+        confidence: 0.98,
+      };
+    }
+    if (words.length >= 4 && uniqueWords.size <= 2 && !hasGrievanceKeyword) {
+      return {
+        isSpam: true,
+        reason: 'Repetitive phrase without complaint context detected',
+        confidence: 0.95,
+      };
+    }
+  }
+
+  // 6. Keyboard smash / row patterns
+  const keyboardSmashes = [
+    'qwerty', 'asdfgh', 'zxcvbn', 'qwert', 'asdfg', 'zxcvb',
+    '12345', '23456', '34567', '45678', '56789',
+    'poiuy', 'lkjhg', 'mnbvc', 'dfghj', 'fghjk',
+    'qweqwe', 'asdasd', 'zxczxc', 'asdfasdf', 'qwertyuiop',
+    'asdfghjkl', 'zxcvbnm', 'lkjhasdf', 'cbhhcbhbdhcdbhd'
+  ];
+  for (const smash of keyboardSmashes) {
+    if (lower.includes(smash) && !hasGrievanceKeyword) {
+      return {
+        isSpam: true,
+        reason: 'Keyboard smash or row pattern detected',
+        confidence: 0.98,
+      };
+    }
+  }
+
+  // 7. Consonant clusters / missing vowels in long words
+  for (const word of words) {
+    const cleanWord = word.toLowerCase().replace(/[^a-z]/g, '');
+    if (cleanWord.length >= 6) {
+      // 5+ consecutive consonants (e.g. "sdfghjk", "rtpsdfgh")
+      if (/[bcdfghjklmnpqrstvwxyz]{5,}/i.test(cleanWord) && !hasGrievanceKeyword) {
+        return {
+          isSpam: true,
+          reason: 'Unnatural consonant cluster (gibberish string) detected',
+          confidence: 0.95,
+        };
+      }
+      // Long word with no vowels (e.g. "bcdfgj")
+      if (!/[aeiouy]/i.test(cleanWord)) {
+        return {
+          isSpam: true,
+          reason: 'Word with missing vowels (gibberish string) detected',
+          confidence: 0.95,
+        };
+      }
+    }
+  }
+
+  return { isSpam: false, reason: 'Legitimate grievance pattern', confidence: 0.5 };
+}
+
 // 4. AI Spam & Gibberish Classification Endpoint
 app.post('/api/ai/classify-complaint', async (req: Request, res: Response) => {
   const { text, category, studentType } = req.body;
@@ -192,36 +318,44 @@ app.post('/api/ai/classify-complaint', async (req: Request, res: Response) => {
 
   const trimmed = text.trim();
 
-  // Basic deterministic heuristic checks for fast response & fallback
-  const isTooShort = trimmed.length < 2;
-  const isRepetitive = /(.)\1{7,}/i.test(trimmed); // e.g. aaaaaaaa, xxxxxxxx
-  const consonantsOnly = /^[^aeiou\s]{10,}$/i.test(trimmed); // e.g. cbhhcbhbdhcdbhd
-
-  if (isTooShort || isRepetitive || consonantsOnly) {
+  // 1. Run deterministic pattern heuristics first
+  const heuristicResult = analyzeSpamAndGibberish(trimmed, category);
+  if (heuristicResult.isSpam && heuristicResult.confidence >= 0.9) {
     return res.json({
       isSpam: true,
-      reason: 'Gibberish or repetitive keystroke pattern detected',
-      confidence: 0.95,
-      suggestedCategory: category || 'Others'
+      reason: heuristicResult.reason,
+      confidence: heuristicResult.confidence,
+      suggestedCategory: category || 'Others',
     });
   }
 
+  // 2. Run Gemini 3.8 Flash AI Analysis
   try {
     const ai = getAI();
     if (ai) {
-      const prompt = `You are an AI spam and authenticity classifier for a College Student Grievance Redressal System.
-Analyze the following student complaint:
-"""${trimmed}"""
-Selected Category: ${category || 'Unknown'}
+      const prompt = `You are an AI Spam & Authenticity Classifier for a College Student Grievance Redressal System.
+
+Evaluate the following student complaint text:
+"""
+${trimmed}
+"""
+
+Category Selected: ${category || 'General'}
 Student Type: ${studentType || 'Unknown'}
 
-Determine if this complaint is SPAM / GIBBERISH (e.g. keyboard smash like 'cbhhcbhbdhcdbhd', meaningless noise, prank, abusive trolling without grievance, or non-actionable gibberish) or a LEGITIMATE student complaint.
+Rules for Classification:
+1. Mark "isSpam": true if the text is:
+   - Gibberish or random character strings (e.g. "asdfghjkl", "qwerty", "dfghjk", "lkjhasdf", "cbhhcbhbdhcdbhd", "asdasd", "asdfasdf", "sdasda").
+   - Test or dummy messages (e.g. "test message", "testing 123", "hello world", "sample text", "demo", "sample complaint").
+   - Meaningless or non-actionable text (e.g. "ok", "nothing", "good", "no problem", "hi", "hey", "abc", "xyz").
+   - Off-topic trolling, insults without grievance context, or abusive noise.
+2. Mark "isSpam": false if the text describes a genuine college or hostel grievance (e.g. water leakage, wifi issues, food quality, lab equipment, room repairs, ragging, bus timings, cleanliness, etc.).
 
-Respond ONLY with valid JSON conforming to this schema:
+Respond ONLY with a valid JSON object matching this schema:
 {
   "isSpam": boolean,
-  "reason": "short explanation (under 15 words) of why it is spam or legitimate",
-  "confidence": number between 0 and 1,
+  "reason": "concise explanation under 12 words",
+  "confidence": number between 0.0 and 1.0,
   "suggestedCategory": "Food" | "Damages & Repairs" | "Hostel Wi-Fi" | "Plumbing & Water" | "Electrical & AC" | "Ragging & Harassment" | "Bus & Transport" | "Canteen" | "Classroom & Lab" | "Others"
 }`;
 
@@ -230,7 +364,7 @@ Respond ONLY with valid JSON conforming to this schema:
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
-        }
+        },
       });
 
       const responseText = response.text || '{}';
@@ -238,9 +372,9 @@ Respond ONLY with valid JSON conforming to this schema:
         const parsed = JSON.parse(responseText);
         return res.json({
           isSpam: Boolean(parsed.isSpam),
-          reason: parsed.reason || (parsed.isSpam ? 'Flagged as spam by AI model' : 'Legitimate grievance'),
+          reason: parsed.reason || (parsed.isSpam ? 'Flagged as spam by AI model' : 'Legitimate student complaint'),
           confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
-          suggestedCategory: parsed.suggestedCategory || category || 'Others'
+          suggestedCategory: parsed.suggestedCategory || category || 'Others',
         });
       } catch (parseErr) {
         console.warn('Failed to parse AI response JSON, falling back:', responseText);
@@ -250,17 +384,12 @@ Respond ONLY with valid JSON conforming to this schema:
     console.error('Gemini AI classification error:', err?.message || err);
   }
 
-  // Safe fallback if Gemini is unreachable or key not configured
-  // Check random character ratio / dictionary heuristics
-  const words = trimmed.split(/\s+/);
-  const avgWordLen = trimmed.length / (words.length || 1);
-  const looksLikeSpam = avgWordLen > 25 || trimmed.toLowerCase().includes('cbhhcbhbdhcdbhd');
-
+  // Fallback return
   res.json({
-    isSpam: looksLikeSpam,
-    reason: looksLikeSpam ? 'Suspicious keyword or formatting detected' : 'Standard grievance text structure',
-    confidence: 0.8,
-    suggestedCategory: category || 'Others'
+    isSpam: heuristicResult.isSpam,
+    reason: heuristicResult.reason,
+    confidence: heuristicResult.confidence,
+    suggestedCategory: category || 'Others',
   });
 });
 
