@@ -9,14 +9,12 @@ export interface SendOtpParams {
 export interface SendOtpResult {
   success: boolean;
   message: string;
-  otpCode?: string;
   errorDetails?: string;
 }
 
 /**
- * Service helper to dispatch 6-digit OTP to user's email address using EmailJS.
+ * Service helper to dispatch 6-digit OTP to user's email address using EmailJS and server endpoints.
  * Pre-validates form parameters, requests OTP generation from backend, and sends via EmailJS.
- * Ensures the user is NEVER blocked if EmailJS service rate-limits or delays delivery.
  */
 export async function sendOTPEmail({ email, name, regNo }: SendOtpParams): Promise<SendOtpResult> {
   const trimmedEmail = email.trim();
@@ -48,22 +46,39 @@ export async function sendOTPEmail({ email, name, regNo }: SendOtpParams): Promi
     }
 
     const generatedOtp = String(backendData.otpCode);
-    console.log('DEBUG OTP CODE GENERATED:', generatedOtp);
 
-    // 3. Trigger EmailJS dispatch with fallback for instant usability
+    // 3. Trigger EmailJS dispatch
     try {
       await sendEmailJSOtp(trimmedEmail, trimmedName, generatedOtp);
       return {
         success: true,
         message: `Verification code sent to ${trimmedEmail}.`,
-        otpCode: generatedOtp,
       };
     } catch (emailjsErr: any) {
-      console.warn('EmailJS delivery fallback engaged:', emailjsErr?.message || emailjsErr);
+      console.warn('EmailJS delivery error:', emailjsErr?.message || emailjsErr);
+      const errMsg = emailjsErr?.message || String(emailjsErr);
+      
+      // If server sent directly via Gmail SMTP/Nodemailer, consider it successful
+      if (backendData.sentViaGmail) {
+        return {
+          success: true,
+          message: `Verification code sent directly to ${trimmedEmail} via Gmail.`,
+        };
+      }
+
+      // Otherwise report the EmailJS error so user knows to reconnect Gmail in EmailJS
+      if (errMsg.includes('412') || errMsg.includes('insufficient authentication scopes')) {
+        return {
+          success: false,
+          message: 'EmailJS Error (412): Gmail API missing authentication scopes. Please reconnect your Gmail account in EmailJS dashboard.',
+          errorDetails: errMsg,
+        };
+      }
+
       return {
-        success: true,
-        message: `Verification code generated for ${trimmedEmail}.`,
-        otpCode: generatedOtp,
+        success: false,
+        message: `Failed to send email: ${errMsg}`,
+        errorDetails: errMsg,
       };
     }
   } catch (error: any) {

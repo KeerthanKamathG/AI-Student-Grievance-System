@@ -54,7 +54,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose
   // OTP Verification state
   const [step, setStep] = useState<'form' | 'otp'>('form');
   const [enteredOtp, setEnteredOtp] = useState('');
-  const [generatedOtpCode, setGeneratedOtpCode] = useState('');
   const [otpSentMessage, setOtpSentMessage] = useState('');
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -199,13 +198,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose
       });
 
       if (result.success) {
-        if (result.otpCode) {
-          setGeneratedOtpCode(result.otpCode);
-          setEnteredOtp(result.otpCode);
-        }
+        setEnteredOtp('');
         setStep('otp');
         setCooldownSeconds(30);
-        setOtpSentMessage(`Verification code sent to ${email.trim()}`);
+        setOtpSentMessage(`Verification code sent to ${email.trim()}. Please check your email inbox or spam folder.`);
       } else {
         setErrorMsg(result.message || 'Failed to dispatch verification OTP to your email.');
       }
@@ -230,12 +226,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose
       });
 
       if (result.success) {
-        if (result.otpCode) {
-          setGeneratedOtpCode(result.otpCode);
-          setEnteredOtp(result.otpCode);
-        }
+        setEnteredOtp('');
         setCooldownSeconds(30);
-        setOtpSentMessage(`Resent verification code to ${email}`);
+        setOtpSentMessage(`Resent verification code to ${email.trim()}. Please check your inbox or spam folder.`);
       } else {
         setErrorMsg(result.message || 'Failed to resend verification OTP.');
       }
@@ -716,28 +709,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onSuccess, onClose
                       className="w-48 mx-auto block text-center tracking-widest text-lg font-mono font-bold py-2 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-
-                  {generatedOtpCode && (
-                    <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-medium flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span>Generated Code: <strong className="font-mono text-sm tracking-widest text-amber-950 font-bold">{generatedOtpCode}</strong></span>
-                        </div>
-                        <button
-                          id="autofill-otp-btn"
-                          type="button"
-                          onClick={() => setEnteredOtp(generatedOtpCode)}
-                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer shrink-0"
-                        >
-                          Auto-fill Code
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-amber-700/90 leading-tight">
-                        Check your email inbox or spam folder. You can also click <strong>Auto-fill Code</strong> above to verify instantly.
-                      </p>
-                    </div>
-                  )}
 
                   {/* Resend OTP Bar with Cooldown Timer */}
                   <div className="flex items-center justify-between text-xs px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl">

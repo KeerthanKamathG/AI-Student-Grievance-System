@@ -28,8 +28,9 @@ export const sendOTPEmail = async (userEmail: string, userName: string, otpCode:
     throw new Error('EmailJS Error (422): Recipient email address is empty.');
   }
 
-  // Populate all standard EmailJS template variable aliases for recipient email address
+  // Populate all standard EmailJS template variable aliases for recipient email address, name, and OTP code
   const templateParams = {
+    // Email recipient aliases
     to_email: cleanEmail,
     email: cleanEmail,
     user_email: cleanEmail,
@@ -39,15 +40,96 @@ export const sendOTPEmail = async (userEmail: string, userName: string, otpCode:
     recipient_email: cleanEmail,
     email_to: cleanEmail,
     to_email_address: cleanEmail,
+    toEmail: cleanEmail,
+    userEmail: cleanEmail,
+    recipientEmail: cleanEmail,
+    emailTo: cleanEmail,
 
+    // Name aliases
     to_name: cleanName,
     user_name: cleanName,
     name: cleanName,
+    toName: cleanName,
+    userName: cleanName,
+    student_name: cleanName,
+    studentName: cleanName,
+    NAME: cleanName,
 
+    // OTP / Code aliases (covering camelCase, snake_case, PascalCase, UPPERCASE)
     otp_code: cleanCode,
+    otpCode: cleanCode,
+    OtpCode: cleanCode,
+    OTP_CODE: cleanCode,
+    
     otp: cleanCode,
+    OTP: cleanCode,
+    Otp: cleanCode,
+    
     code: cleanCode,
-    message: `Your verification OTP code is ${cleanCode}`,
+    CODE: cleanCode,
+    Code: cleanCode,
+
+    passcode: cleanCode,
+    Passcode: cleanCode,
+    PASSCODE: cleanCode,
+    pass_code: cleanCode,
+    passCode: cleanCode,
+
+    pin: cleanCode,
+    PIN: cleanCode,
+    Pin: cleanCode,
+
+    verification_code: cleanCode,
+    verificationCode: cleanCode,
+    VerificationCode: cleanCode,
+    VERIFICATION_CODE: cleanCode,
+
+    verify_code: cleanCode,
+    verifyCode: cleanCode,
+
+    otp_number: cleanCode,
+    otpNumber: cleanCode,
+
+    auth_code: cleanCode,
+    authCode: cleanCode,
+
+    user_otp: cleanCode,
+    userOtp: cleanCode,
+
+    email_otp: cleanCode,
+    emailOtp: cleanCode,
+
+    otp_val: cleanCode,
+    otpVal: cleanCode,
+    otp_value: cleanCode,
+    otpValue: cleanCode,
+
+    value: cleanCode,
+    VALUE: cleanCode,
+    token: cleanCode,
+    TOKEN: cleanCode,
+    key: cleanCode,
+    KEY: cleanCode,
+
+    number: cleanCode,
+    NUMBER: cleanCode,
+    secret: cleanCode,
+    SECRET: cleanCode,
+
+    // Message & Body aliases
+    message: `Your 6-digit verification OTP code is ${cleanCode}`,
+    Message: `Your 6-digit verification OTP code is ${cleanCode}`,
+    MESSAGE: `Your 6-digit verification OTP code is ${cleanCode}`,
+    content: `Your 6-digit verification OTP code is ${cleanCode}`,
+    Content: `Your 6-digit verification OTP code is ${cleanCode}`,
+    body: `Your 6-digit verification OTP code is ${cleanCode}`,
+    Body: `Your 6-digit verification OTP code is ${cleanCode}`,
+    text: `Your 6-digit verification OTP code is ${cleanCode}`,
+    Text: `Your 6-digit verification OTP code is ${cleanCode}`,
+    details: `Your 6-digit verification OTP code is ${cleanCode}`,
+    Details: `Your 6-digit verification OTP code is ${cleanCode}`,
+    otp_message: `Your 6-digit verification OTP code is ${cleanCode}`,
+    otpMessage: `Your 6-digit verification OTP code is ${cleanCode}`,
   };
 
   try {
